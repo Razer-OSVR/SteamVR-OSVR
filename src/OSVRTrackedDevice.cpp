@@ -38,13 +38,13 @@
 #include <openvr_driver.h>
 
 // Library/third-party includes
+#include <osvr/Client/RenderManagerConfig.h>
 #include <osvr/ClientKit/Display.h>
 #include <osvr/Display/DisplayEnumerator.h>
+#include <osvr/RenderKit/DistortionCorrectTextureCoordinate.h>
 #include <osvr/Util/EigenInterop.h>
 #include <osvr/Util/PlatformConfig.h>
-#include <osvr/Client/RenderManagerConfig.h>
 #include <util/FixedLengthStringFunctions.h>
-#include <osvr/RenderKit/DistortionCorrectTextureCoordinate.h>
 
 // Standard includes
 #include <cstring>
@@ -349,49 +349,6 @@ void OSVRTrackedDevice::GetProjectionRaw(vr::EVREye eye, float* left, float* rig
 
 vr::DistortionCoordinates_t OSVRTrackedDevice::ComputeDistortion(vr::EVREye eye, float u, float v)
 {
-#if 0
-    OSVR_LOG(trace) << "OSVRTrackedHMD::ComputeDistortion(" << eye << ", " << u << ", " << v << ") called.";
-    // Rotate the (u, v) coordinates as appropriate to the display orientation.
-    const auto orientation = scanoutOrigin_ + display_.rotation;
-    std::tie(u, v) = rotateTextureCoordinates(orientation, u, v);
-    // Note that RenderManager expects the (0, 0) to be the lower-left corner
-    // and (1, 1) to be the upper-right corner while SteamVR assumes (0, 0) is
-    // upper-left and (1, 1) is lower-right.  To accommodate this, we need to
-    // flip the y-coordinate before passing it to RenderManager and flip it
-    // again before returning the value to SteamVR.
-    OSVR_LOG(trace) << "OSVRTrackedHMD::ComputeDistortion(" << eye << ", " << u << ", " << v << ") rotated.";
-    using osvr::renderkit::DistortionCorrectTextureCoordinate;
-    static const size_t COLOR_RED = 0;
-    static const size_t COLOR_GREEN = 1;
-    static const size_t COLOR_BLUE = 2;
-    const auto osvr_eye = static_cast<size_t>(eye);
-    const auto distortion_parameters = distortionParameters_[osvr_eye];
-    const auto in_coords = osvr::renderkit::Float2 {{u, 1.0f - v}}; // flip v-coordinate
-    const auto interpolators = (vr::Eye_Left == eye) ? &leftEyeInterpolators_ : &rightEyeInterpolators_;
-    auto coords_red = DistortionCorrectTextureCoordinate(
-        osvr_eye, in_coords, distortion_parameters,
-        COLOR_RED, overfillFactor_, *interpolators);
-    auto coords_green = DistortionCorrectTextureCoordinate(
-        osvr_eye, in_coords, distortion_parameters,
-        COLOR_GREEN, overfillFactor_, *interpolators);
-    auto coords_blue = DistortionCorrectTextureCoordinate(
-        osvr_eye, in_coords, distortion_parameters,
-        COLOR_BLUE, overfillFactor_, *interpolators);
-    vr::DistortionCoordinates_t coords;
-    // flip v-coordinates again
-    coords.rfRed[0] = coords_red[0];
-    coords.rfRed[1] = 1.0f - coords_red[1];
-    coords.rfGreen[0] = coords_green[0];
-    coords.rfGreen[1] = 1.0f - coords_green[1];
-    coords.rfBlue[0] = coords_blue[0];
-    coords.rfBlue[1] = 1.0f - coords_blue[1];
-    // Unrotate the coordinates
-    const auto reverse_orientation = static_cast<osvr::display::DesktopOrientation>((4 - static_cast<int>(orientation)) % 4);
-    std::tie(coords.rfRed[0], coords.rfRed[1]) = rotateTextureCoordinates(reverse_orientation, coords.rfRed[0], coords.rfRed[1]);
-    std::tie(coords.rfGreen[0], coords.rfGreen[1]) = rotateTextureCoordinates(reverse_orientation, coords.rfGreen[0], coords.rfGreen[1]);
-    std::tie(coords.rfBlue[0], coords.rfBlue[1]) = rotateTextureCoordinates(reverse_orientation, coords.rfBlue[0], coords.rfBlue[1]);
-    return coords;
-#endif
     // Rotate the texture coordinates to match the display orientation
     const auto orientation = scanoutOrigin_ + display_.rotation;
     const auto desired_orientation = osvr::display::DesktopOrientation::Landscape;
@@ -1091,9 +1048,11 @@ void OSVRTrackedDevice::configure()
         const auto position_x = renderManagerConfig_.getWindowXPosition();
         const auto position_y = renderManagerConfig_.getWindowYPosition();
 
-        // Rotation
+        // Default to a rotation of zero degrees in direct mode.
+        // Use scan-out origin setting to adjust rotation.
         using osvr::display::Rotation;
         auto rotation = Rotation::Zero;
+#if 0
         const auto rot = renderManagerConfig_.getDisplayRotation();
         if (0 == rot) {
             rotation = Rotation::Zero;
@@ -1106,6 +1065,7 @@ void OSVRTrackedDevice::configure()
         } else {
             OSVR_LOG(err) << "Invalid rotation from RenderManager configuration: " << rot << ".";
         }
+#endif
 
         display_.adapter.description = "Unknown";
         display_.name = displayConfiguration_.getVendor() + " " + displayConfiguration_.getModel() + " " + displayConfiguration_.getVersion();
@@ -1238,11 +1198,11 @@ osvr::display::ScanOutOrigin OSVRTrackedDevice::getScanOutOrigin() const
         return (is_landscape ? SO::UpperLeft : SO::UpperRight);
     } else if (is_hdk_20) {
         // change this if the HDK 2.0 display descriptor gets fixed
-        return SO::UpperLeft;
+        return SO::LowerRight;
     }
 
     // Some unknown HDK!
-    return SO::LowerRight;
+    return SO::UpperLeft;
 }
 
 double OSVRTrackedDevice::getVerticalRefreshRate() const
@@ -1254,10 +1214,12 @@ double OSVRTrackedDevice::getVerticalRefreshRate() const
     // Otherwise, we'll fall back on OSVR HDK defaults or use a heuristic for
     // other HMDs.
     const auto refresh_rate = settings_->getSetting<float>("refreshRate", 0.0);
-    if (refresh_rate > 0.0) {
+    // Assume refresh rates greater than 10 Hz are valid
+    if (refresh_rate > 10.0) {
         return refresh_rate;
     }
 
+    // Refresh rate was less than 10 Hz. It's either invalid or unspecified.
     const auto is_hdk_1x = (std::string::npos != display_.name.find("OSVR HDK 1"));
     const auto is_hdk_20 = (std::string::npos != display_.name.find("OSVR HDK 2.0"));
     const auto is_high_res = (display_.size.width > 1920 || display_.size.height > 1920);
