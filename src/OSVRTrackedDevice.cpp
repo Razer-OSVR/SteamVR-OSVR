@@ -77,7 +77,7 @@ vr::EVRInitError OSVRTrackedDevice::Activate(uint32_t object_id)
 
     objectId_ = object_id;
 
-    const std::time_t waitTime = 5; // wait up to 5 seconds for init
+    const std::time_t waitTime = 10; // wait up to 10 seconds for init
 
     // Register tracker callback
     if (trackerInterface_.notEmpty()) {
@@ -1018,8 +1018,10 @@ void OSVRTrackedDevice::HmdTrackerCallback(void* userdata, const OSVR_TimeValue*
 
     pose.result = vr::TrackingResult_Running_OK;
     pose.poseIsValid = true;
+    // change to fal
     pose.willDriftInYaw = true;
-    pose.shouldApplyHeadModel = true;
+    // changed head model to false (as OSVR seems to use head model)
+    pose.shouldApplyHeadModel = false;
     pose.deviceIsConnected = true;
 
     self->pose_ = pose;
@@ -1116,8 +1118,8 @@ void OSVRTrackedDevice::configure()
         display_.rotation = rotation;
         display_.verticalRefreshRate = getVerticalRefreshRate();
         display_.attachedToDesktop = false; // assuming direct mode
-        display_.edidVendorId = 0xd24e; // SVR // TODO not provided by config files
-        display_.edidProductId = 0x1019; // TODO not provided by config files
+        display_.edidVendorId = (uint32_t) settings_->getSetting<int32_t>("EDID_VID", 0xAF06);
+        display_.edidProductId = (uint32_t) settings_->getSetting<int32_t>("EDID_PID", 0x1111);
     }
 
     // The scan-out origin of the display

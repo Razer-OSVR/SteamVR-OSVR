@@ -59,6 +59,7 @@ private:
     //@{
     bool getSetting(identity<bool>, const std::string& setting, const bool& value);
     int32_t getSetting(identity<int32_t>, const std::string& setting, const int32_t& value);
+    uint32_t getSetting(identity<uint32_t>, const std::string &setting, const uint32_t &value);
     float getSetting(identity<float>, const std::string& setting, const float& value);
     std::string getSetting(identity<std::string>, const std::string& setting, const std::string& value);
     //@}
@@ -98,6 +99,14 @@ inline float Settings::getSetting(identity<float>, const std::string& setting, c
 inline int32_t Settings::getSetting(identity<int32_t>, const std::string& setting, const int32_t& value)
 {
     return settings_->GetInt32(section_.c_str(), setting.c_str(), value);
+}
+
+inline uint32_t Settings::getSetting(identity<uint32_t>, const std::string &setting, const uint32_t &uvalue)
+{
+    int32_t value;
+    value = uvalue;
+
+    return (uint32_t)settings_->GetInt32(section_.c_str(), setting.c_str(), value);
 }
 
 inline std::string Settings::getSetting(identity<std::string>, const std::string& setting, const std::string& value)
